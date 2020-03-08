@@ -1,0 +1,273 @@
+---
+title: "Data607-MajorAssignment-Project2-Data Transformation"
+author: "Vinayak Kamath"
+date: "3/7/2020"
+output:
+  html_document:
+    df_print: paged
+    toc: false
+    toc_depth: 3
+    toc_float: 
+      collapsed: true
+      smooth_scroll: true
+      number_sections: true
+    theme: cosmo
+  pdf_document:
+    extra_dependencies:
+    - geometry
+    - multicol
+---
+
+# Data Transformation {.tabset}  
+
+Below three of the “wide” datasets identified in the Week 6 Discussion items  have been used for this exercise.  
+  
+1. Set 1  - Bank stocks from 2007 (*Discussion Thread by Jeff Shamp*)  
+2. Set 2  - UNICEF dataset on Under 5 Mortality (*Discussion Thread by Samuel Bellows*)   
+3. Set 3  - Hospital Consumer Assessment of Healthcare Providers and Systems response data by state (*Discussion Thread by Thomas Hill*)  
+  
+  
+We will practice tidying and transformations on these data sets.and We will performing few analysis points as discussed/requested in the discussion threads. 
+
+
+```{r setup, include=FALSE, echo=FALSE }
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(maptools)
+```
+
+
+
+## Bank Stocks  
+Reading the CSV file from GIT repository and loading into dataframe:  
+```{r, warning = FALSE}
+theUrl <- "https://raw.githubusercontent.com/kamathvk1982/Data607-MajorAssignment-Project2/master/banks.csv"
+banks.full.df <- read.csv(file = theUrl, header = T , sep = ',', na.strings=c("NA","NaN", "") )
+
+# Creating new data frame with reduced columns for current analysis:
+banks.df <-  banks.full.df %>%
+  select(c(date=Bank.Ticker, date.for.split=Bank.Ticker, bac.close=BAC.3, bac.volume=BAC.4, c.close=C.3, c.volume=C.4, jpm.close=JPM.3, jpm.volume=JPM.4, gs.close=GS.3, gs.volume=GS.4)) %>%
+  filter(date!= 'Stock Info' ,  date!= 'Date'  ) %>%
+  separate(date.for.split,  c("date.year", "date.month")) %>%
+  unite("date.year.month", date.year:date.month, sep='-')
+
+kable(head(banks.df))
+
+# Next, we will tidy the data by reshaping the data layput in the table by using tidyr->gather function:  
+banks.tidy.df <- gather(banks.df, key = "key", value = "value", bac.close , bac.volume , c.close , c.volume , jpm.close , jpm.volume , gs.close , gs.volume )
+
+banks.tidy.df$value  <- as.numeric(as.character(banks.tidy.df$value))
+
+kable(head(banks.tidy.df))
+```  
+  
+***  
+
+#### **Analysis 1**  
+Piloting the closing balance and volume traded of each bank using point chart:  
+```{r, warning = FALSE}
+plot.price <- banks.tidy.df %>%
+  filter(grepl('close', key) ) %>%
+   group_by(key,date.year.month) %>%
+     summarize(mean.price= mean(as.double(value)))  %>%
+       ggplot(aes(x=date.year.month, y=mean.price, colour=key)) + 
+  theme(axis.text.x = element_text(angle = 90, size = 2)) +
+  geom_point() 
+
+plot.volume <- banks.tidy.df %>%
+  filter(grepl('volume', key) ) %>%
+   group_by(key,date.year.month) %>%
+     summarize(mean.volume= mean(as.double(value)))  %>%
+       ggplot(aes(x=date.year.month, y=log(mean.volume), colour=key)) + 
+  theme(axis.text.x = element_text(angle = 90, size = 2)) +
+  geom_point()    
+
+plot.price
+plot.volume
+```  
+  
+***Based on the above point chart we can see how the stock prices for banks have been impacted during recession.***  
+  
+***  
+  
+#### **Analysis 2**  
+Comparing for Citi and JP Morgan; Getting the mean of the prices for the year 2008; the peak of the recession:  
+```{r, warning = FALSE}
+data.citi.2008 <- banks.tidy.df %>%
+  filter(grepl('c.close', key) , grepl('2008', date.year.month)) %>%
+   separate(date.year.month,  c("date.year", "date.month"))  
+
+data.jpm.2008 <- banks.tidy.df %>%
+  filter(grepl('jpm.close', key) , grepl('2008', date.year.month)) %>%
+   separate(date.year.month,  c("date.year", "date.month"))  
+
+#52 week data for Citi for 2008
+summary(as.double(data.citi.2008$value))
+boxplot(as.double(data.citi.2008$value), main="CITI 2008", col = "green")
+
+#52 week data for JPM for 2008
+summary(as.double(data.jpm.2008$value))
+boxplot(as.double(data.jpm.2008$value), main="JPM 2008", col = "purple")
+```  
+
+***Based on the above box plot shapes we can say that Citi had a much bigger or higher price dip then JPM.***  
+
+   
+***  
+
+## UNICEF  
+
+Reading the CSV file from GIT repository and loading into dataframe:  
+```{r, warning = FALSE}
+theUrl <- "https://raw.githubusercontent.com/kamathvk1982/Data607-MajorAssignment-Project2/master/unicef-u5mr.csv"
+unicef.full.df <- read.csv(file = theUrl, header = T , sep = ',', na.strings=c("NA","NaN", "") )
+dim((unicef.full.df))
+```
+
+Data Transformation and Tidy using dplyr and tidyr: 
+```{r}
+# Next, we will tidy the data by reshaping the data layput in the table by using tidyr->gather function:
+unicef.tidy.df <- gather(unicef.full.df, key = "Year", value = "Value", -CountryName) 
+unicef.tidy.df$Value  <- as.numeric(as.character(unicef.tidy.df$Value))
+unicef.tidy.df$CountryName  <- str_trim(as.character(unicef.tidy.df$CountryName))
+
+# Use the tidyr->drop_na function to drop the row on column Status having NA value:
+unicef.tidy.df <- drop_na(unicef.tidy.df, Value)    
+
+# Use the sub  function to drop the 'U5MR.' from new column Year:
+unicef.tidy.df$Year  <- sub('U5MR.','',unicef.tidy.df$Year)
+
+kable(head(unicef.tidy.df))
+
+```  
+  
+#### **Analysis 1**  
+Comparing a Developed Nation **United States of America** , a Developing nation **India** and a Under Developed Nation **Chad**:  
+```{r}
+unicef.set1.df <-  unicef.tidy.df %>%
+  filter(grepl('United States of America|India|Chad' , CountryName	)) %>%
+  arrange(Year, CountryName)
+
+kable(head(unicef.set1.df))
+
+unicef.set1.df %>%
+       ggplot(aes(x=Year, y=Value, colour=CountryName)) + 
+  theme(axis.text.x = element_text(angle = 90, size = 2)) +
+  geom_point() 
+
+```  
+
+***Based on the above Chart, we can see that the under 5 mortality is coming down for all three countries; but comparatively the counts are still high for Under Developed Countries and for Developing Countries .***  
+
+***  
+
+#### **Analysis 2**  
+List of countries where the under 5 mortality  as of 2015 is still greater then 85:    
+```{r}
+# Filtering for 2015 and greater then 85:
+unicef.set2.df <-  unicef.tidy.df %>%
+  filter( Year=='2015' ,  Value > 85 ) %>%
+  arrange( desc(Value))
+
+
+# Ploting on world map:
+data(wrld_simpl)
+myCountries = wrld_simpl@data$NAME %in% names(table(unicef.set2.df$CountryName))
+plot(wrld_simpl, col = c(gray(.80), "red")[myCountries+1])
+```  
+
+***Based on the above World Map plotting we can see that most of these countries are in Continent Africa.***  
+
+***  
+  
+  
+## Hospital Consumer Assessment  
+
+Reading the CSV file from GIT repository and loading into dataframe:  
+```{r, warning = FALSE}
+theUrl <- "https://raw.githubusercontent.com/kamathvk1982/Data607-MajorAssignment-Project2/master/HCAHPS.csv"
+hcahps.full.df <- read.csv(file = theUrl, header = T , sep = ',', na.strings=c("NA","NaN", "Not Available") )
+
+hcahps.full.df$HCAHPS.Answer.Percent  <- as.numeric(as.character(hcahps.full.df$HCAHPS.Answer.Percent))
+
+kable(head(hcahps.full.df))
+```
+  
+***  
+  
+#### **Analysis 1**  
+Measure RESPECT (treated patients with courtesy and respect) for Nurses and Doctors for NJ and near by States:  
+```{r, warning = FALSE}
+# we will create the required dataset using select, filter and separate function for data transformation:
+respect.df <-  hcahps.full.df %>%
+  select(c(State, Measure.ID = HCAHPS.Measure.ID,Answer.Percent=HCAHPS.Answer.Percent )) %>%
+  filter(grepl('CT|NY|PA|NJ' , State	) ,  grepl('RESPECT' , Measure.ID	) ) %>%
+  separate(Measure.ID,  c("Type", "Response"), sep = '_RESPECT_')
+
+
+# Next, we will tidy the data by reshaping the data layput in the table by using tidyr->spread function:
+respect.tidy.df <- spread(respect.df, key = Response, value = Answer.Percent  )
+colnames(respect.tidy.df) <- c("State", "Type", "Always", "Sometimes.or.Never", "Usually")
+
+kable(respect.tidy.df)
+
+respect.tidy.df %>% group_by(State, Type) %>% summarise (Positive.Ind = sum(as.integer(Always)+as.integer(Usually)))
+
+```  
+
+***If we treat "Usually" and "Always" as a positive indicator then we can say that in State of CT the Doctors did better and in the State of PA the Nurses did better; for NJ and NY state the Doctors and Nurses were voted equally.***   
+  
+***  
+
+#### **Analysis 2**   
+Measure RATING (a rating of 9 or 10 on a scale from 0 (lowest) to 10 (highest)) for HOSPITALS for NJ and near by States:  
+```{r, warning = FALSE}
+# we will create the required dataset using select, filter and separate function for data transformation:
+rating.df <-  hcahps.full.df %>%
+  select(c(State, Measure.ID = HCAHPS.Measure.ID,Answer.Percent=HCAHPS.Answer.Percent )) %>%
+  filter(grepl('CT|NY|PA|NJ' , State	) ,  grepl('RATING' , Measure.ID	) ) %>%
+  separate(Measure.ID,  c("Type", "Response"), sep = '_RATING_')
+
+# Next, we will tidy the data by reshaping the data layput in the table by using tidyr->spread function:
+rating.tidy.df <- spread(rating.df, key = Response, value = Answer.Percent  )
+colnames(rating.tidy.df) <- c("State", "Type", "low.6.or.Lower", "medium.7.or.8", "high.9.or.10")
+
+kable(rating.tidy.df)
+
+rating.tidy.df %>% group_by(State, Type) %>% summarise (Positive.Ind = sum(as.integer(medium.7.or.8)+as.integer(high.9.or.10)))
+
+```  
+
+***If we treat "rating of 7 or 8 [medium]" and "rating of 9 or 10 [high]" as a positive indicator then we can say that in State of PA the Hospitals did better then other states.***   
+  
+***  
+
+#### **Analysis 3**
+Measure Doctors and Nurses across applicable questions in all States:  
+```{r, warning = FALSE}
+# we will create the required dataset using select, filter and separate function for data transformation.
+# BY looking at the data values we can say that in column Measure.ID any pattern of DOCTOR or COMP_2 can be treated as DOCTOR data
+# and any pattern of NURSE or COMP_1 can be treated as NURSE data:  
+
+compare.doctor.df <-  hcahps.full.df %>%
+  select(c(State, Measure.ID = HCAHPS.Measure.ID,Measure.ID2 = HCAHPS.Measure.ID, Answer.Percent=HCAHPS.Answer.Percent )) %>%
+  filter(   grepl('DOCTOR|COMP_2' , Measure.ID	), grepl('_A_P|_U_P' , Measure.ID2	) ) 
+
+compare.nurse.df <-  hcahps.full.df %>%
+  select(c(State, Measure.ID = HCAHPS.Measure.ID,Measure.ID2 = HCAHPS.Measure.ID, Answer.Percent=HCAHPS.Answer.Percent )) %>%
+  filter(   grepl('NURSE|COMP_1' , Measure.ID	), grepl('_A_P|_U_P' , Measure.ID2	) ) 
+```
+
+Next, we will calculate the sum of the scores:  
+```{r echo=FALSE}
+paste('Total of Positive Response Score for Doctors is', sum(as.double(compare.doctor.df$Answer.Percent), na.rm = T) )
+paste('Total of Positive Response Score for Nurses is', sum(as.double(compare.nurse.df$Answer.Percent), na.rm = T) )
+```  
+
+***If we treat "Usually [_U_P]" and "Always [_A_P]" as a positive indicator then we can say that the Nurses had a better result then Doctors across all states***   
+  
+***    
